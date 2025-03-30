@@ -1,0 +1,39 @@
+import streamlit as st  
+import pandas as pd  
+import matplotlib.pyplot as plt  
+  
+# Load your tariff database  
+@st.cache  
+def load_data():  
+    return pd.read_excel('tariff_database_202405.xlsx')  
+  
+df = load_data()  
+  
+st.title('Tariff Database Query App')  
+  
+# Text input for searching product descriptions  
+search_term = st.text_input('Search Product Description', '')  
+  
+# Option to filter by HS chapter (e.g., metals 72-81)  
+chapters = st.multiselect('Select HS Chapters', options=sorted(df['hts8'].astype(str).str.slice(0,2).unique()), default=['72','73','74','75','76','77','78','79','80','81'])  
+  
+# Filter dataset based on input  
+if search_term or chapters:  
+    mask = df['brief_description'].str.contains(search_term, case=False, na=False) if search_term else True  
+    mask &= df['hts8'].astype(str).str.slice(0,2).isin(chapters)  
+    filtered_df = df[mask]  
+else:  
+    filtered_df = df  
+  
+st.write('### Filtered Results', filtered_df.head())  
+  
+# Show a simple histogram of tariff rates  
+if 'mfn_ad_val_rate' in df.columns:  
+    fig, ax = plt.subplots(figsize=(9, 6))  
+    ax.hist(filtered_df['mfn_ad_val_rate'].dropna(), bins=30, color='#766CDB', edgecolor='white')  
+    ax.set_title('Distribution of MFN Ad Valorem Rates', pad=15, fontsize=20)  
+    ax.set_xlabel('Ad Valorem Rate', labelpad=10, fontsize=16)  
+    ax.set_ylabel('Count', labelpad=10, fontsize=16)  
+    ax.grid(color='#E0E0E0')  
+    ax.set_axisbelow(True)  
+    st.pyplot(fig)  
