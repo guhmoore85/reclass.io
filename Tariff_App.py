@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import zipfile
 import re
 
 # Set page config
@@ -12,7 +13,7 @@ st.set_page_config(page_title="Tariff Database Query App", layout="wide")
 # Load the combined dataset
 @st.cache_data
 def load_data():
-    df = pd.read_csv('combined_tariff_database.csv')
+    df = pd.read_csv('compressed_tariff_database.csv.zip', compression='zip')
     # Create HS chapter from first 2 digits of hts8
     if 'hts8' in df.columns:
         df['hs_chapter'] = df['hts8'].astype(str).str[:2].astype(int)
