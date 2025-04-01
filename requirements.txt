@@ -1,2 +1,6 @@
 --upgrade
 matplotlib
+streamlit
+pandas
+numpy
+seaborn
