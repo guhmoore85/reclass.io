@@ -13,7 +13,7 @@ st.set_page_config(page_title="Tariff Database Query App", layout="wide")
 # Load the combined dataset
 @st.cache_data
 def load_data():
-    df = pd.read_csv('combined_tariff_database.csv.zip', compression='zip')
+    df = pd.read_csv('combined_tariff_database.csv.zip', compression='infer')
     # Create HS chapter from first 2 digits of hts8
     if 'hts8' in df.columns:
         df['hs_chapter'] = df['hts8'].astype(str).str[:2].astype(int)
