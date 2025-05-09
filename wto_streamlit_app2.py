@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 import requests
+import os
 
 st.set_page_config(page_title="WTO Tariff Lookup", layout="wide")
 
 API_URL = "https://api.wto.org/timeseries/v1/data"
-API_KEY = "ab5ad8703cd54ffba080cb9554175101"
+API_KEY = os.getenv("WTO_API_KEY")
 
 # Debug mode in sidebar
 # debug_mode = st.sidebar.checkbox("Debug Mode")
