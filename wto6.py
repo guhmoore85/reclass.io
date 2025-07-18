@@ -31,7 +31,7 @@ download_nltk_resources()
 
 st.set_page_config(page_title="WTO Tariff Lookup", layout="wide")
 
-API_KEY = "ab5ad8703cd54ffba080cb9554175101" # IMPORTANT: Replace with your actual API key
+API_KEY = st.secrets["API_KEY"] # IMPORTANT: Replace with your actual API key
 
 # --- Initialize NLTK components after ensuring they are downloaded ---
 nltk_stopwords_english = set(nltk_stopwords.words('english'))
