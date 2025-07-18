@@ -1,30 +1,42 @@
 import streamlit as st
 import pandas as pd
 import requests
-import re 
-import nltk 
+import re
+import nltk
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords as nltk_stopwords
 
-# Initialize NLTK components (assuming resources are downloaded)
-try:
-    nltk_stopwords_english = set(nltk_stopwords.words('english'))
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('corpora/wordnet.zip')
-    nltk.data.find('corpora/omw-1.4.zip')
-except LookupError as e:
-    st.error(f"NLTK resource missing: {e}. Please run the nltk.download('resource_name') commands in a Python console as previously instructed.")
-    st.stop() 
+# --- START: New NLTK Resource Downloader ---
+@st.cache_resource
+def download_nltk_resources():
+    """Checks for NLTK resources and downloads them if missing."""
+    resources = {
+        "corpora/stopwords": "stopwords",
+        "tokenizers/punkt": "punkt",
+        "corpora/wordnet.zip": "wordnet",
+        "corpora/omw-1.4.zip": "omw-1.4"
+    }
+    for path, package_id in resources.items():
+        try:
+            nltk.data.find(path)
+        except LookupError:
+            with st.spinner(f"Downloading required NLTK resource: {package_id}..."):
+                nltk.download(package_id)
+
+# Run the downloader function
+download_nltk_resources()
+# --- END: New NLTK Resource Downloader ---
 
 
 st.set_page_config(page_title="WTO Tariff Lookup", layout="wide")
 
-API_URL = "https://api.wto.org/timeseries/v1/data"
 API_KEY = "ab5ad8703cd54ffba080cb9554175101" # IMPORTANT: Replace with your actual API key
 
+# --- Initialize NLTK components after ensuring they are downloaded ---
+nltk_stopwords_english = set(nltk_stopwords.words('english'))
 custom_stop_words_for_extraction = set([
-    "parts", "thereof", "subsidiary", "chapter", "whether", "other", "nesoi", 
+    "parts", "thereof", "subsidiary", "chapter", "whether", "other", "nesoi",
     "product", "hs", "code", "description", "including", "etc"
 ])
 STOP_WORDS_FOR_EXTRACTION = nltk_stopwords_english.union(custom_stop_words_for_extraction)
