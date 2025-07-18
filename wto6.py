@@ -28,7 +28,6 @@ def download_nltk_resources():
 download_nltk_resources()
 # --- END: NLTK Resource Downloader ---
 
-
 st.set_page_config(page_title="WTO Tariff Lookup", layout="wide")
 
 # IMPROVEMENT: Use Streamlit Secrets for your API Key in deployment
@@ -50,7 +49,8 @@ lemmatizer = WordNetLemmatizer()
 # --- Helper Functions ---
 def lemmatize_string_for_search(text_to_lemmatize):
     """Lemmatizes a string for better search matching."""
-    if not isinstance(text_to_lemmatize, str) or not text_to_lemmatize.strip(): return ""
+    if not isinstance(text_to_lemmatize, str) or not text_to_lemmatize.strip(): 
+        return ""
     words = word_tokenize(text_to_lemmatize.lower())
     lemmatized_list = [lemmatizer.lemmatize(lemmatizer.lemmatize(word, pos='v'), pos='n') for word in words if word.isalpha()]
     return " ".join(lemmatized_list)
@@ -62,8 +62,10 @@ def create_pivot_table(df, value_columns_list):
     df_copy = df.copy()
     df_copy["Year"] = df_copy["Year"].fillna("Unknown_Year").astype(str)
     valid_value_columns = [col for col in value_columns_list if col in df_copy.columns]
-    if not valid_value_columns: return pd.DataFrame()
-    for col in valid_value_columns: df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
+    if not valid_value_columns: 
+        return pd.DataFrame()
+    for col in valid_value_columns: 
+        df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
 
     desc_col_name = "Pivot Description"
     if "HTS8 Local Description" in df_copy.columns and df_copy["HTS8 Local Description"].notna().any():
@@ -75,20 +77,25 @@ def create_pivot_table(df, value_columns_list):
 
     df_copy.dropna(subset=["HS6", desc_col_name, "Year"], inplace=True)
     df_copy.dropna(subset=valid_value_columns, how='all', inplace=True)
-    if df_copy.empty: return pd.DataFrame()
+    if df_copy.empty: 
+        return pd.DataFrame()
 
     try:
         pivot = df_copy.pivot_table(index=["HS6", desc_col_name], columns="Year", values=valid_value_columns, aggfunc="first")
-        if pivot.empty: return pd.DataFrame()
+        if pivot.empty: 
+            return pd.DataFrame()
         if isinstance(pivot.columns, pd.MultiIndex) and len(pivot.columns.levels) > 1:
             try:
                 year_level_values = pivot.columns.levels[1].astype(str)
                 sorted_years = sorted(year_level_values, key=lambda x: (int(x) if x.isdigit() else float('inf'), x))
                 new_column_order = [(metric, year) for metric in valid_value_columns for year in sorted_years if (metric, year) in pivot.columns]
-                if new_column_order: pivot = pivot[new_column_order]
-            except: pass
+                if new_column_order: 
+                    pivot = pivot[new_column_order]
+            except: 
+                pass
         return pivot.reset_index().rename(columns={desc_col_name: "Description (Local or API)"})
-    except Exception: return pd.DataFrame()
+    except Exception: 
+        return pd.DataFrame()
 
 @st.cache_data
 def load_hts_data(file_path="hts8.csv"):
@@ -112,7 +119,13 @@ def load_hts_data(file_path="hts8.csv"):
 
 @st.cache_data
 def load_country_list():
-    fallback_countries = [{"name": "Canada", "code": "124"}, {"name": "China", "code": "156"}, {"name": "European Union", "code": "918"}, {"name": "Mexico", "code": "484"}, {"name": "United States of America", "code": "840"}]
+    fallback_countries = [
+        {"name": "Canada", "code": "124"}, 
+        {"name": "China", "code": "156"}, 
+        {"name": "European Union", "code": "918"}, 
+        {"name": "Mexico", "code": "484"}, 
+        {"name": "United States of America", "code": "840"}
+    ]
     try:
         response = requests.get("https://api.wto.org/timeseries/v1/reporters", headers={"Ocp-Apim-Subscription-Key": API_KEY}, timeout=10)
         if response.status_code == 200 and isinstance(response.json(), list):
@@ -123,11 +136,14 @@ def load_country_list():
         return sorted(fallback_countries, key=lambda x: x['name'])
     except Exception:
         return sorted(fallback_countries, key=lambda x: x['name'])
-        @st.cache_data
+
+@st.cache_data
 def fetch_tariff_data(indicator_code, hs6_list_str, year_range, reporter_code, partner_code=None):
-    if not hs6_list_str: return pd.DataFrame()
+    if not hs6_list_str: 
+        return pd.DataFrame()
     params = {"i": indicator_code, "pc": hs6_list_str, "ps": year_range, "r": reporter_code, "subscription-key": API_KEY}
-    if partner_code: params["p"] = partner_code
+    if partner_code: 
+        params["p"] = partner_code
     try:
         response = requests.get("https://api.wto.org/timeseries/v1/data", params=params, timeout=60)
         response.raise_for_status() # Will raise an HTTPError for bad responses (4xx or 5xx)
@@ -148,14 +164,15 @@ def fetch_tariff_data(indicator_code, hs6_list_str, year_range, reporter_code, p
         return pd.DataFrame()
 
 def extract_keywords_nltk(text, num_keywords=3, min_len=4):
-    if not isinstance(text, str) or not text.strip(): return []
+    if not isinstance(text, str) or not text.strip(): 
+        return []
     words = word_tokenize(text.lower())
     lemmatized_keywords = []
     for word in words:
         if word.isalpha() and len(word) >= min_len and word not in STOP_WORDS_FOR_EXTRACTION:
             lemma = lemmatizer.lemmatize(lemmatizer.lemmatize(word, pos='v'), pos='n')
             if lemma not in STOP_WORDS_FOR_EXTRACTION and len(lemma) >= min_len:
-                 lemmatized_keywords.append(lemma)
+                lemmatized_keywords.append(lemma)
     distinct_keywords = []
     for k in lemmatized_keywords:
         if k not in distinct_keywords:
@@ -166,7 +183,8 @@ def extract_keywords_nltk(text, num_keywords=3, min_len=4):
 
 def display_product_data_tab(data_df, tab_title_suffix, search_context_info=None):
     st.subheader(f"Data for {tab_title_suffix}")
-    if search_context_info: st.caption(search_context_info)
+    if search_context_info: 
+        st.caption(search_context_info)
     with st.expander("Reclassification Helper"):
         st.write("Enter an HS6 code from the raw data table below and click the button to start a reclassification request.")
         selected_hs_for_reclass = st.text_input("Enter HS6 code:", key=f"reclass_hs_{tab_title_suffix.replace(' ', '_')}")
@@ -198,15 +216,22 @@ def display_product_data_tab(data_df, tab_title_suffix, search_context_info=None
         st.info(f"No API data found for {tab_title_suffix.lower()}.")
 
 # --- Main App Logic ---
-if 'app_page' not in st.session_state: st.session_state.app_page = "Search"
-if 'results_ready' not in st.session_state: st.session_state.results_ready = False
-if 'results_data' not in st.session_state: st.session_state.results_data = {}
-if 'reclassification_data' not in st.session_state: st.session_state.reclassification_data = {}
-    # --- Sidebar Navigation ---
+if 'app_page' not in st.session_state: 
+    st.session_state.app_page = "Search"
+if 'results_ready' not in st.session_state: 
+    st.session_state.results_ready = False
+if 'results_data' not in st.session_state: 
+    st.session_state.results_data = {}
+if 'reclassification_data' not in st.session_state: 
+    st.session_state.reclassification_data = {}
+
+# --- Sidebar Navigation ---
 st.sidebar.title("App Navigation")
 page_options = ["Search", "Compare Results", "Reclassification Helper", "News & Overview"]
-try: current_page_index = page_options.index(st.session_state.app_page)
-except ValueError: current_page_index = 0
+try: 
+    current_page_index = page_options.index(st.session_state.app_page)
+except ValueError: 
+    current_page_index = 0
 st.sidebar.radio("Go to", page_options, key="sidebar_radio_key", on_change=lambda: setattr(st.session_state, 'app_page', st.session_state.sidebar_radio_key), index=current_page_index)
 st.sidebar.markdown("---")
 
@@ -254,7 +279,8 @@ if st.session_state.app_page == "Search":
         filtered_hts = hts_df.copy()
         if search_term:
             query_parts = [f"`searchable_description`.str.contains(r'\\b{re.escape(kw)}\\b', case=False, na=False)" for kw in lemmatize_string_for_search(search_term).split() if kw]
-            if query_parts: filtered_hts = filtered_hts.query(" and ".join(query_parts))
+            if query_parts: 
+                filtered_hts = filtered_hts.query(" and ".join(query_parts))
         if code_prefix:
             filtered_hts = filtered_hts[filtered_hts["hts8"].str.startswith(code_prefix) | filtered_hts["hs6"].str.startswith(code_prefix)]
 
@@ -311,7 +337,8 @@ if st.session_state.app_page == "Search":
                 }
                 st.session_state.app_page = "Compare Results"
                 st.rerun()
-                elif st.session_state.app_page == "Compare Results":
+
+elif st.session_state.app_page == "Compare Results":
     st.title("📊 Comparison Results")
     if not st.session_state.results_ready:
         st.info("Please perform a search on the 'Search' page first.")
@@ -335,7 +362,8 @@ if st.session_state.app_page == "Search":
             merge_keys = ["Reporter", "Reporter Code", "HS6", "Description", "Year", "Partner", "Partner Code"]
             for df_add in df_list[1:]:
                 on_keys = [k for k in merge_keys if k in merged_df.columns and k in df_add.columns]
-                if not on_keys: continue
+                if not on_keys: 
+                    continue
                 merged_df = pd.merge(merged_df, df_add, on=on_keys, how="outer")
         
         if not hts_df.empty:
@@ -352,14 +380,19 @@ if st.session_state.app_page == "Search":
         kw_data = merged_df[merged_df["HS6"].isin(data["keyword_comparison_hs6_codes"])].copy()
         
         tab_titles = [f"Selected ({len(sel_data)})"]
-        if not hs4_data.empty: tab_titles.append(f"HS4 Comp. ({len(hs4_data)})")
-        if not kw_data.empty: tab_titles.append(f"Keyword Comp. ({len(kw_data)})")
+        if not hs4_data.empty: 
+            tab_titles.append(f"HS4 Comp. ({len(hs4_data)})")
+        if not kw_data.empty: 
+            tab_titles.append(f"Keyword Comp. ({len(kw_data)})")
         tabs = st.tabs(tab_titles)
-        with tabs[0]: display_product_data_tab(sel_data, "Your Selected Products")
+        with tabs[0]: 
+            display_product_data_tab(sel_data, "Your Selected Products")
         if not hs4_data.empty and len(tabs) > 1:
-            with tabs[1]: display_product_data_tab(hs4_data, "HS4 Comparison Products")
+            with tabs[1]: 
+                display_product_data_tab(hs4_data, "HS4 Comparison Products")
         if not kw_data.empty and len(tabs) > 2:
-            with tabs[2]: display_product_data_tab(kw_data, "Keyword Comparison Products", f"NLTK keywords: `{', '.join(data['extracted_keywords_for_search'])}`")
+            with tabs[2]: 
+                display_product_data_tab(kw_data, "Keyword Comparison Products", f"NLTK keywords: `{', '.join(data['extracted_keywords_for_search'])}`")
         
         st.markdown("---")
         st.subheader("Download Options")
