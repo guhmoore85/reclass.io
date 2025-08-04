@@ -6,6 +6,8 @@ import re
 import nltk
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords as nltk_stopwords
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # --- NLTK and Data Setup ---
 
@@ -21,9 +23,10 @@ except LookupError:
     nltk.download('stopwords', quiet=True)
     st.success("NLTK resources downloaded. The app should now run correctly.")
 
-# Initialize NLTK components
+# Initialize NLTK components and define custom stop words for better filtering
 lemmatizer = WordNetLemmatizer()
-stop_words = set(nltk_stopwords.words('english'))
+custom_stop_words = {'nesoi', 'thereof', 'other', 'whether', 'textile', 'materials', 'articles'}
+stop_words = set(nltk_stopwords.words('english')).union(custom_stop_words)
 
 @st.cache_data
 def load_and_prepare_hts_data(filepath: str) -> pd.DataFrame:
@@ -31,8 +34,8 @@ def load_and_prepare_hts_data(filepath: str) -> pd.DataFrame:
     try:
         df = pd.read_csv(filepath)
         df = df.dropna(subset=['hts8', 'brief_description'])
+        df = df.drop_duplicates(subset=['hts8'], keep='first')
         df['hts8'] = df['hts8'].astype(str).str.zfill(8)
-        # Add a 6-digit column for the reclassification helper lookup
         df['hs6'] = df['hts8'].str[:6]
 
         def lemmatize_text(text):
@@ -41,6 +44,7 @@ def load_and_prepare_hts_data(filepath: str) -> pd.DataFrame:
             return ' '.join(lemmatized_tokens)
 
         df['lemmatized_desc'] = df['brief_description'].apply(lemmatize_text)
+        df = df.reset_index(drop=True)
         return df
     except FileNotFoundError:
         st.error(f"Error: The file '{filepath}' was not found. Please make sure it's in the same directory as the app.")
@@ -53,9 +57,7 @@ def load_rulings_data(filepath: str) -> pd.DataFrame:
         df = pd.read_csv(filepath)
         df = df.rename(columns={"Found_HTS8": "hts8"})
         df = df.dropna(subset=['hts8', 'RULING', 'RULING_DATE'])
-        # FIX: Ensure hts8 is a string, remove all non-digits, and then format correctly
         df['hts8'] = df['hts8'].astype(str).str.replace(r'\D', '', regex=True).str.zfill(8)
-        # FIX: Drop duplicate rulings to show only unique ones per HTS code
         df = df.drop_duplicates(subset=['hts8', 'RULING'])
         return df
     except FileNotFoundError:
@@ -65,14 +67,40 @@ def load_rulings_data(filepath: str) -> pd.DataFrame:
         st.error(f"An error occurred while loading the rulings file: {e}")
         return pd.DataFrame()
 
+# --- Recommendation Engine Setup ---
+@st.cache_resource
+def create_tfidf_matrix(_df: pd.DataFrame):
+    """Creates and caches the TF-IDF vectorizer and matrix."""
+    if _df.empty or 'lemmatized_desc' not in _df.columns:
+        return None, None
+    # FIX: Tune vectorizer for better performance with specialized vocabulary
+    vectorizer = TfidfVectorizer(stop_words=list(stop_words), min_df=1, max_df=0.9)
+    tfidf_matrix = vectorizer.fit_transform(_df['lemmatized_desc'])
+    return vectorizer, tfidf_matrix
+
+def get_hierarchical_recommendations(hts_code: str, _df: pd.DataFrame, num_recs: int = 5) -> pd.DataFrame:
+    """Finds other products with the same 6-digit HTS prefix."""
+    if _df.empty or len(hts_code) < 6:
+        return pd.DataFrame()
+    prefix = hts_code[:6]
+    recommendations = _df[(_df['hs6'] == prefix) & (_df['hts8'] != hts_code)]
+    return recommendations[['hts8', 'brief_description']].head(num_recs)
+
+def get_semantic_recommendations(hts_code: str, _df: pd.DataFrame, _tfidf_matrix, num_recs: int = 5) -> pd.DataFrame:
+    """Finds products with the most similar descriptions using TF-IDF."""
+    if _df.empty or _tfidf_matrix is None:
+        return pd.DataFrame()
+    try:
+        idx = _df.index[_df['hts8'] == hts_code].tolist()[0]
+        cosine_similarities = cosine_similarity(_tfidf_matrix[idx:idx+1], _tfidf_matrix).flatten()
+        related_docs_indices = cosine_similarities.argsort()[:-num_recs-2:-1]
+        recommendations = [i for i in related_docs_indices if i != idx]
+        return _df.iloc[recommendations][['hts8', 'brief_description']].head(num_recs)
+    except (IndexError, TypeError):
+        return pd.DataFrame()
 
 # --- Configuration & Styling ---
-st.set_page_config(
-    page_title="Tariff Data Explorer",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="Tariff Data Explorer", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
 # --- Core API Logic ---
@@ -87,8 +115,7 @@ def get_tariff_data(api_token: str, hts_code: str, year: str) -> Optional[Dict[s
         response.raise_for_status()
         return response.json()
     except requests.exceptions.HTTPError as http_err:
-        if response.status_code != 404:
-            st.error(f"HTTP Error for {hts_code} in {year}: {http_err}")
+        if response.status_code != 404: st.error(f"HTTP Error for {hts_code} in {year}: {http_err}")
     except requests.exceptions.RequestException as req_err:
         st.error(f"A critical network error occurred: {req_err}")
     return None
@@ -118,17 +145,10 @@ def parse_rate_for_graph(data: Dict[str, Any]) -> Optional[float]:
         if adv_rate_str and '%' in adv_rate_str:
             return float(adv_rate_str.replace('%', '').strip())
         mfn_rate_text = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'mfn_text'), "")
-        
-        # FIX: Check if mfn_rate_text is not None before calling .lower()
-        if mfn_rate_text and "free" in mfn_rate_text.lower(): 
-            return 0.0
-        
-        # Ensure mfn_rate_text is a string for regex
+        if mfn_rate_text and "free" in mfn_rate_text.lower(): return 0.0
         if isinstance(mfn_rate_text, str):
             numbers = re.findall(r"(\d+\.?\d*)", mfn_rate_text)
-            if numbers: 
-                return float(numbers[0])
-
+            if numbers: return float(numbers[0])
     except (StopIteration, TypeError, ValueError):
         return None
     return None
@@ -139,17 +159,13 @@ def parse_rate_for_calculation(data: Dict[str, Any]) -> Dict[str, Any]:
     try:
         treatment_section = next(s for s in data.get('sections', []) if s.get('id') == 'tariff_treatment')
         mfn_section = next(c for c in treatment_section.get('children', []) if c.get('id') == 'mfn')
-        
         calculation_details['unit'] = next((c.get('value') for c in treatment_section.get('children', []) if c.get('id') == 'uoq1'), "N/A")
-        
         adv_rate_str = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'adv_rate_comp'), "0%")
         if adv_rate_str and '%' in adv_rate_str:
             calculation_details['ad_valorem_percent'] = float(adv_rate_str.replace('%', '').strip()) / 100.0
-        
         spec_rate_str = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'spec_rate_comp'), "$0.0")
         if spec_rate_str and '$' in spec_rate_str:
             calculation_details['specific_rate_usd'] = float(spec_rate_str.replace('$', '').strip())
-            
     except (StopIteration, TypeError, ValueError) as e:
         calculation_details['error'] = f"Could not parse rate components for calculation: {e}"
     return calculation_details
@@ -181,9 +197,10 @@ except FileNotFoundError:
     st.info("Create a file `.streamlit/secrets.toml` with the content:\n`usitc_api_token = \"YOUR_TOKEN_HERE\"`")
     st.stop()
 
-# Load the local data files
+# Load local data and create recommendation engine components
 hts_df = load_and_prepare_hts_data('hts8.csv')
 rulings_df = load_rulings_data('reconciled_rulings_with_all_hts8.csv')
+vectorizer, tfidf_matrix = create_tfidf_matrix(hts_df)
 
 page = st.sidebar.radio("Navigation", ["Search", "Compare", "Reclassification Helper", "News & Overview"])
 
@@ -221,17 +238,15 @@ if page == "Search":
                 latest_tariff_data = get_tariff_data(API_TOKEN, hts_input, str(end_year))
             
             if latest_tariff_data:
-                st.session_state.latest_tariff_data = latest_tariff_data # Save for calculator
+                st.session_state.latest_tariff_data = latest_tariff_data
                 st.success(f"Displaying details for HTS Code: **{hts_input}** in **{end_year}**")
                 desc = latest_tariff_data.get('desc')
                 if desc: st.subheader(f"Description: {desc}")
                 
-                # --- NEW: Rulings Section ---
                 if not rulings_df.empty:
                     matching_rulings = rulings_df[rulings_df['hts8'] == hts_input]
                     if not matching_rulings.empty:
                         st.markdown("#### 📝 Associated Rulings")
-                        st.info("This product classification has been the subject of one or more official rulings.")
                         st.dataframe(matching_rulings[['RULING', 'RULING_DATE']], use_container_width=True)
 
                 st.markdown("#### Key Tariff Rates")
@@ -257,110 +272,89 @@ if page == "Search":
                 st.line_chart(history_df)
             else: st.info("No historical rate data could be found.")
 
+            # --- NEW: Similar Products Section ---
+            st.markdown("---")
+            st.markdown("#### 💡 Similar Product Recommendations")
+            
+            hier_recs = get_hierarchical_recommendations(hts_input, hts_df)
+            sem_recs = get_semantic_recommendations(hts_input, hts_df, tfidf_matrix)
+
+            col_rec1, col_rec2 = st.columns(2)
+            with col_rec1:
+                st.markdown("**Other Products in this Subheading**")
+                if not hier_recs.empty: st.table(hier_recs)
+                else: st.info("No other products found with the same 6-digit prefix.")
+            
+            with col_rec2:
+                st.markdown("**Semantically Similar Products**")
+                if not sem_recs.empty: st.table(sem_recs)
+                else: st.info("No semantically similar products found.")
+
     # --- Duty Calculator Section ---
     if 'latest_tariff_data' in st.session_state and st.session_state.latest_tariff_data:
         st.markdown("---")
         st.markdown("#### 🧮 Duty Calculator (Estimate)")
-        st.write("Enter your shipment details to estimate the 'General (Applied MFN)' duty.")
-        
         rate_components = parse_rate_for_calculation(st.session_state.latest_tariff_data)
-        
         if rate_components.get("error"): st.warning(rate_components["error"])
         else:
             col_calc1, col_calc2 = st.columns(2)
-            with col_calc1:
-                shipment_value = st.number_input("Shipment Value (USD)", min_value=0.0, value=1000.0, step=100.0)
-            
+            with col_calc1: shipment_value = st.number_input("Shipment Value (USD)", 0.0, value=1000.0, step=100.0)
             shipment_quantity = 0
             if rate_components.get("specific_rate_usd", 0) > 0:
-                 with col_calc2:
-                    shipment_quantity = st.number_input(f"Shipment Quantity ({rate_components.get('unit', 'units')})", min_value=0.0, value=100.0, step=10.0)
-            
+                 with col_calc2: shipment_quantity = st.number_input(f"Shipment Quantity ({rate_components.get('unit', 'units')})", 0.0, value=100.0, step=10.0)
             if st.button("Calculate Duty"):
                 ad_valorem_duty = shipment_value * rate_components.get("ad_valorem_percent", 0)
                 specific_duty = shipment_quantity * rate_components.get("specific_rate_usd", 0)
                 total_duty = ad_valorem_duty + specific_duty
-
                 st.subheader("Estimated Duty Calculation:")
-                st.metric(label="Ad Valorem Duty", value=f"${ad_valorem_duty:,.2f}")
-                if specific_duty > 0: st.metric(label="Specific Duty", value=f"${specific_duty:,.2f}")
-                st.metric(label="Total Estimated Duty", value=f"${total_duty:,.2f}")
+                st.metric("Ad Valorem Duty", f"${ad_valorem_duty:,.2f}")
+                if specific_duty > 0: st.metric("Specific Duty", f"${specific_duty:,.2f}")
+                st.metric("Total Estimated Duty", f"${total_duty:,.2f}")
 
 elif page == "Compare":
     st.header("Compare Product Tariffs")
-    st.write("Enter two HTS codes to see a side-by-side comparison of their key tariff rates.")
-    
     if 'comparison_results' not in st.session_state: st.session_state.comparison_results = None
-
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1: hts1 = st.text_input("Product 1 HTS Code", "08044000")
     with col2: hts2 = st.text_input("Product 2 HTS Code", "09012100")
     with col3: compare_year = st.text_input("Year", "2023")
-
     if st.button("Compare"):
         with st.spinner("Fetching data for comparison..."):
-            data1 = get_tariff_data(API_TOKEN, hts1, compare_year)
-            data2 = get_tariff_data(API_TOKEN, hts2, compare_year)
-        
+            data1, data2 = get_tariff_data(API_TOKEN, hts1, compare_year), get_tariff_data(API_TOKEN, hts2, compare_year)
         if data1 and data2:
             st.success("Comparison data loaded successfully.")
-            st.session_state.comparison_results = {
-                "data1": data1, "data2": data2, "hts1": hts1, "hts2": hts2
-            }
+            st.session_state.comparison_results = {"data1": data1, "data2": data2, "hts1": hts1, "hts2": hts2}
         else:
             st.error("Could not fetch data for one or both products.")
             st.session_state.comparison_results = None
-
     if st.session_state.comparison_results:
         res = st.session_state.comparison_results
         desc1, desc2 = res['data1'].get('desc', 'N/A'), res['data2'].get('desc', 'N/A')
         rates1, rates2 = parse_key_rates(res['data1']), parse_key_rates(res['data2'])
-        mfn1 = rates1[rates1['Rate Type'] == 'General (Applied MFN)']['Rate'].values[0]
-        mfn2 = rates2[rates2['Rate Type'] == 'General (Applied MFN)']['Rate'].values[0]
-        col2_rate1 = rates1[rates1['Rate Type'] == 'Column 2 (Bound)']['Rate'].values[0]
-        col2_rate2 = rates2[rates2['Rate Type'] == 'Column 2 (Bound)']['Rate'].values[0]
-        
-        comparison_df = pd.DataFrame({
-            "Feature": ["Description", "Applied MFN Rate", "Bound Rate (Col. 2)"],
-            f"Product 1 ({res['hts1']})": [desc1, mfn1, col2_rate1],
-            f"Product 2 ({res['hts2']})": [desc2, mfn2, col2_rate2],
-        })
+        mfn1, mfn2 = rates1[rates1['Rate Type'] == 'General (Applied MFN)']['Rate'].values[0], rates2[rates2['Rate Type'] == 'General (Applied MFN)']['Rate'].values[0]
+        col2_rate1, col2_rate2 = rates1[rates1['Rate Type'] == 'Column 2 (Bound)']['Rate'].values[0], rates2[rates2['Rate Type'] == 'Column 2 (Bound)']['Rate'].values[0]
+        comparison_df = pd.DataFrame({"Feature": ["Description", "Applied MFN Rate", "Bound Rate (Col. 2)"], f"Product 1 ({res['hts1']})": [desc1, mfn1, col2_rate1], f"Product 2 ({res['hts2']})": [desc2, mfn2, col2_rate2]})
         st.table(comparison_df.set_index('Feature'))
-
-        # --- Duty Comparison Calculator ---
         st.markdown("---")
         st.markdown("#### 🧮 Duty Comparison Calculator")
-        
-        rate_comp1 = parse_rate_for_calculation(res['data1'])
-        rate_comp2 = parse_rate_for_calculation(res['data2'])
-        
+        rate_comp1, rate_comp2 = parse_rate_for_calculation(res['data1']), parse_rate_for_calculation(res['data2'])
         col_calc1, col_calc2 = st.columns(2)
-        with col_calc1:
-            shipment_value = st.number_input("Shipment Value (USD)", min_value=0.0, value=1000.0, step=100.0, key="compare_val")
-        
+        with col_calc1: shipment_value = st.number_input("Shipment Value (USD)", 0.0, value=1000.0, step=100.0, key="compare_val")
         shipment_quantity = 0
         if rate_comp1.get("specific_rate_usd", 0) > 0 or rate_comp2.get("specific_rate_usd", 0) > 0:
-            unit1 = rate_comp1.get('unit', 'units')
-            unit2 = rate_comp2.get('unit', 'units')
-            with col_calc2:
-                shipment_quantity = st.number_input(f"Shipment Quantity ({unit1}/{unit2})", min_value=0.0, value=100.0, step=10.0, key="compare_qty")
-        
+            unit1, unit2 = rate_comp1.get('unit', 'units'), rate_comp2.get('unit', 'units')
+            with col_calc2: shipment_quantity = st.number_input(f"Shipment Quantity ({unit1}/{unit2})", 0.0, value=100.0, step=10.0, key="compare_qty")
         if st.button("Calculate Duty Difference"):
             duty1 = (shipment_value * rate_comp1.get("ad_valorem_percent", 0)) + (shipment_quantity * rate_comp1.get("specific_rate_usd", 0))
             duty2 = (shipment_value * rate_comp2.get("ad_valorem_percent", 0)) + (shipment_quantity * rate_comp2.get("specific_rate_usd", 0))
             difference = duty1 - duty2
-            
             st.subheader("Estimated Duty Comparison:")
             col_res1, col_res2, col_res3 = st.columns(3)
             col_res1.metric(f"Product 1 ({res['hts1']}) Duty", f"${duty1:,.2f}")
             col_res2.metric(f"Product 2 ({res['hts2']}) Duty", f"${duty2:,.2f}")
             col_res3.metric("Potential Savings", f"${difference:,.2f}", delta_color="inverse")
-
         if st.button("Prepare Reclassification Letter"):
-            st.session_state.reclassification_data = {
-                'current_hs': res['hts1'], 'current_desc': desc1,
-                'proposed_hs': res['hts2'], 'proposed_desc': desc2
-            }
+            st.session_state.reclassification_data = {'current_hs': res['hts1'], 'current_desc': desc1, 'proposed_hs': res['hts2'], 'proposed_desc': desc2}
             st.success("Data sent to Reclassification Helper. Please navigate to that page from the sidebar.")
 
 elif page == "Reclassification Helper":
@@ -373,15 +367,12 @@ elif page == "Reclassification Helper":
     st.markdown("---")
     st.subheader("Proposed Reclassification")
     proposed_hs = st.text_input("Proposed HTS Code", value=reclass_data.get('proposed_hs', ''), help="Enter the HTS code you believe is correct.")
-    
     proposed_desc_val = reclass_data.get('proposed_desc', '')
     if proposed_hs and not hts_df.empty:
         match = hts_df[hts_df['hts8'] == proposed_hs.replace('.', '')]
         if not match.empty: proposed_desc_val = match.iloc[0]['brief_description']
-    
     st.text_area("Proposed Product Description", value=proposed_desc_val, key="proposed_desc_reclass", height=100, help="Description from local HTS data will appear here if the code is found.")
     justification = st.text_area("Your Justification", height=200, placeholder="Explain why the product fits the proposed classification better...")
-
     if st.button("Generate Letter Draft"):
         if not st.session_state.current_hs_reclass or not proposed_hs or not justification:
             st.error("Please fill in the Current HTS Code, Proposed HTS Code, and your Justification.")
