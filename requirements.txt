@@ -6,3 +6,4 @@ seaborn
 nltk
 requests
 typing
+scikit-learn
