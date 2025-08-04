@@ -428,4 +428,4 @@ elif page == "News & Overview":
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Future Considerations (Post-MVP)")
-st.sidebar.markdown("- **Save Favorites:** Requires a backend database.\n- **Notifications:** Requires a backend and user authentication.\n- **Historical Data Charts:** Implemented for MFN Rate.\n- **Duty Calculator:** Added to Search page.\n- **Associated Rulings:** Added to Search page.")
+st.sidebar.markdown("- **Save Favorites:** Requires a backend database.\n- **Notifications:** Requires a backend and user authentication.\n- **Historical Data Charts:** Implemented for MFN Rate.\n- **Duty Calculator:** Added to Search page.\n- **Associated Rulings:** AI enabled results to be Added to Search page.")
