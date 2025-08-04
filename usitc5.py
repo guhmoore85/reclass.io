@@ -246,7 +246,7 @@ if page == "Search":
                 if not rulings_df.empty:
                     matching_rulings = rulings_df[rulings_df['hts8'] == hts_input]
                     if not matching_rulings.empty:
-                        st.markdown("#### 📝 Associated Rulings")
+                        st.markdown("#### 📝 Associated Rulings. This is a placeholder for an eventual feature that includes recent rulings. Actual rulings at: https://rulings.cbp.gov/")
                         st.dataframe(matching_rulings[['RULING', 'RULING_DATE']], use_container_width=True)
 
                 st.markdown("#### Key Tariff Rates")
