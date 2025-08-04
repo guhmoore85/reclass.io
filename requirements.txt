@@ -5,5 +5,4 @@ numpy
 seaborn
 nltk
 requests
-re
 typing
