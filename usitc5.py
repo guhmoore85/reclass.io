@@ -4,6 +4,7 @@ import pandas as pd
 from typing import Optional, Dict, Any, List
 import re
 import nltk
+import time
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords as nltk_stopwords
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -73,7 +74,6 @@ def create_tfidf_matrix(_df: pd.DataFrame):
     """Creates and caches the TF-IDF vectorizer and matrix."""
     if _df.empty or 'lemmatized_desc' not in _df.columns:
         return None, None
-    # FIX: Tune vectorizer for better performance with specialized vocabulary
     vectorizer = TfidfVectorizer(stop_words=list(stop_words), min_df=1, max_df=0.9)
     tfidf_matrix = vectorizer.fit_transform(_df['lemmatized_desc'])
     return vectorizer, tfidf_matrix
@@ -100,7 +100,7 @@ def get_semantic_recommendations(hts_code: str, _df: pd.DataFrame, _tfidf_matrix
         return pd.DataFrame()
 
 # --- Configuration & Styling ---
-st.set_page_config(page_title="Tariff Data Explorer", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Tariff Data Explorer", page_icon="投", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
 # --- Core API Logic ---
@@ -153,11 +153,9 @@ def parse_rate_for_graph(data: Dict[str, Any]) -> Optional[float]:
         # If that fails, parse the full MFN text description as a fallback
         mfn_rate_text = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'mfn_text'), "")
         
-        # --- MODIFIED LINE ---
         # By wrapping mfn_rate_text in str(), we prevent errors if the API returns None or a number
         if "free" in str(mfn_rate_text).lower():
             return 0.0
-        # --- END MODIFIED LINE ---
 
         # Extract the first number found in the complex text (e.g., "3.7% + ...")
         if isinstance(mfn_rate_text, str):
@@ -206,7 +204,7 @@ def parse_trade_agreements(data: Dict[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(agreements)
 
 # --- Streamlit App UI ---
-st.title("📊 Tariff Data Explorer")
+st.title("投 Tariff Data Explorer")
 st.write("An MVP application to search and compare U.S. tariff data, based on the USITC API.")
 
 try:
@@ -265,7 +263,7 @@ if page == "Search":
                 if not rulings_df.empty:
                     matching_rulings = rulings_df[rulings_df['hts8'] == hts_input]
                     if not matching_rulings.empty:
-                        st.markdown("#### 📝 Associated Rulings")
+                        st.markdown("#### 統 Associated Rulings")
                         st.dataframe(matching_rulings[['RULING', 'RULING_DATE']], use_container_width=True)
 
                 st.markdown("#### Key Tariff Rates")
@@ -286,14 +284,17 @@ if page == "Search":
                     if data:
                         rate = parse_rate_for_graph(data)
                         if rate is not None: historical_rates.append({"Year": str(year), "Rate (%)": rate})
+                    
+                    # Add a 0.5-second pause to avoid hitting the API rate limit
+                    time.sleep(0.5)
+
             if historical_rates:
                 history_df = pd.DataFrame(historical_rates).set_index("Year")
                 st.line_chart(history_df)
             else: st.info("No historical rate data could be found.")
 
-            # --- NEW: Similar Products Section ---
             st.markdown("---")
-            st.markdown("#### 💡 Similar Product Recommendations")
+            st.markdown("#### 庁 Similar Product Recommendations")
             
             hier_recs = get_hierarchical_recommendations(hts_input, hts_df)
             sem_recs = get_semantic_recommendations(hts_input, hts_df, tfidf_matrix)
@@ -309,10 +310,9 @@ if page == "Search":
                 if not sem_recs.empty: st.table(sem_recs)
                 else: st.info("No semantically similar products found.")
 
-    # --- Duty Calculator Section ---
     if 'latest_tariff_data' in st.session_state and st.session_state.latest_tariff_data:
         st.markdown("---")
-        st.markdown("#### 🧮 Duty Calculator (Estimate)")
+        st.markdown("#### ｧｮ Duty Calculator (Estimate)")
         rate_components = parse_rate_for_calculation(st.session_state.latest_tariff_data)
         if rate_components.get("error"): st.warning(rate_components["error"])
         else:
@@ -355,7 +355,7 @@ elif page == "Compare":
         comparison_df = pd.DataFrame({"Feature": ["Description", "Applied MFN Rate", "Bound Rate (Col. 2)"], f"Product 1 ({res['hts1']})": [desc1, mfn1, col2_rate1], f"Product 2 ({res['hts2']})": [desc2, mfn2, col2_rate2]})
         st.table(comparison_df.set_index('Feature'))
         st.markdown("---")
-        st.markdown("#### 🧮 Duty Comparison Calculator")
+        st.markdown("#### ｧｮ Duty Comparison Calculator")
         rate_comp1, rate_comp2 = parse_rate_for_calculation(res['data1']), parse_rate_for_calculation(res['data2'])
         col_calc1, col_calc2 = st.columns(2)
         with col_calc1: shipment_value = st.number_input("Shipment Value (USD)", 0.0, value=1000.0, step=100.0, key="compare_val")
@@ -377,7 +377,7 @@ elif page == "Compare":
             st.success("Data sent to Reclassification Helper. Please navigate to that page from the sidebar.")
 
 elif page == "Reclassification Helper":
-    st.title("📝 Reclassification Letter Helper")
+    st.title("統 Reclassification Letter Helper")
     reclass_data = st.session_state.get('reclassification_data', {})
     if not reclass_data: st.warning("Please compare two products on the 'Compare' page first to pre-fill this form.")
     st.markdown("This tool helps you draft a letter to request a product reclassification. Fill in the details below.")
