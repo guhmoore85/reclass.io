@@ -204,7 +204,7 @@ def parse_trade_agreements(data: Dict[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(agreements)
 
 # --- Streamlit App UI ---
-st.title("投 Tariff Data Explorer")
+st.title("Tariff Data Explorer")
 st.write("An MVP application to search and compare U.S. tariff data, based on the USITC API.")
 
 try:
