@@ -137,20 +137,35 @@ def parse_key_rates(data: Dict[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(rates)
 
 def parse_rate_for_graph(data: Dict[str, Any]) -> Optional[float]:
-    """Parses the MFN rate into a single float value for graphing."""
+    """
+    Parses the MFN rate into a single float value for graphing.
+    This version is more robust to handle simple and compound rates.
+    """
     try:
         treatment_section = next(s for s in data.get('sections', []) if s.get('id') == 'tariff_treatment')
         mfn_section = next(c for c in treatment_section.get('children', []) if c.get('id') == 'mfn')
-        adv_rate_str = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'adv_rate_comp'), "0%")
+
+        # First, try the specific ad valorem component, as it's the cleanest data
+        adv_rate_str = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'adv_rate_comp'), None)
         if adv_rate_str and '%' in adv_rate_str:
             return float(adv_rate_str.replace('%', '').strip())
+
+        # If that fails, parse the full MFN text description as a fallback
         mfn_rate_text = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'mfn_text'), "")
-        if mfn_rate_text and "free" in mfn_rate_text.lower(): return 0.0
+        if "free" in mfn_rate_text.lower():
+            return 0.0
+
+        # Extract the first number found in the complex text (e.g., "3.7% + ...")
         if isinstance(mfn_rate_text, str):
             numbers = re.findall(r"(\d+\.?\d*)", mfn_rate_text)
-            if numbers: return float(numbers[0])
+            if numbers:
+                return float(numbers[0])
+
     except (StopIteration, TypeError, ValueError):
+        # This will catch errors if the JSON structure is missing expected sections
         return None
+    
+    # If no rate was found through any method, return None
     return None
 
 def parse_rate_for_calculation(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -246,7 +261,7 @@ if page == "Search":
                 if not rulings_df.empty:
                     matching_rulings = rulings_df[rulings_df['hts8'] == hts_input]
                     if not matching_rulings.empty:
-                        st.markdown("#### 📝 Associated Rulings. This is a placeholder for an eventual feature that includes recent rulings. Actual rulings at: https://rulings.cbp.gov/")
+                        st.markdown("#### 📝 Associated Rulings")
                         st.dataframe(matching_rulings[['RULING', 'RULING_DATE']], use_container_width=True)
 
                 st.markdown("#### Key Tariff Rates")
@@ -428,4 +443,4 @@ elif page == "News & Overview":
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Future Considerations (Post-MVP)")
-st.sidebar.markdown("- **Save Favorites:** Requires a backend database.\n- **Notifications:** Requires a backend and user authentication.\n- **Historical Data Charts:** Implemented for MFN Rate.\n- **Duty Calculator:** Added to Search page.\n- **Associated Rulings:** AI enabled results to be Added to Search page.")
+st.sidebar.markdown("- **Save Favorites:** Requires a backend database.\n- **Notifications:** Requires a backend and user authentication.\n- **Historical Data Charts:** Implemented for MFN Rate.\n- **Duty Calculator:** Added to Search page.\n- **Associated Rulings:** Added to Search page.")
