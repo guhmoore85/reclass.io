@@ -139,7 +139,7 @@ def parse_key_rates(data: Dict[str, Any]) -> pd.DataFrame:
 def parse_rate_for_graph(data: Dict[str, Any]) -> Optional[float]:
     """
     Parses the MFN rate into a single float value for graphing.
-    This version is more robust to handle simple and compound rates.
+    This version is robust against compound rates and non-string API responses.
     """
     try:
         treatment_section = next(s for s in data.get('sections', []) if s.get('id') == 'tariff_treatment')
@@ -152,8 +152,12 @@ def parse_rate_for_graph(data: Dict[str, Any]) -> Optional[float]:
 
         # If that fails, parse the full MFN text description as a fallback
         mfn_rate_text = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'mfn_text'), "")
-        if "free" in mfn_rate_text.lower():
+        
+        # --- MODIFIED LINE ---
+        # By wrapping mfn_rate_text in str(), we prevent errors if the API returns None or a number
+        if "free" in str(mfn_rate_text).lower():
             return 0.0
+        # --- END MODIFIED LINE ---
 
         # Extract the first number found in the complex text (e.g., "3.7% + ...")
         if isinstance(mfn_rate_text, str):
