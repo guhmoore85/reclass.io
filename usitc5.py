@@ -100,7 +100,7 @@ def get_semantic_recommendations(hts_code: str, _df: pd.DataFrame, _tfidf_matrix
         return pd.DataFrame()
 
 # --- Configuration & Styling ---
-st.set_page_config(page_title="Tariff Data Explorer", page_icon="投", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Tariff Data Explorer", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
 # --- Core API Logic ---
