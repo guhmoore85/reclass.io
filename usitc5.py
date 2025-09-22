@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any, List
 import re
 import nltk
 import time
+import plotly.graph_objects as go
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords as nltk_stopwords
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -87,20 +88,29 @@ def get_hierarchical_recommendations(hts_code: str, _df: pd.DataFrame, num_recs:
     return recommendations[['hts8', 'brief_description']].head(num_recs)
 
 def get_semantic_recommendations(hts_code: str, _df: pd.DataFrame, _tfidf_matrix, num_recs: int = 5) -> pd.DataFrame:
-    """Finds products with the most similar descriptions using TF-IDF."""
+    """Finds products with similar descriptions and returns them with their similarity score."""
     if _df.empty or _tfidf_matrix is None:
         return pd.DataFrame()
     try:
         idx = _df.index[_df['hts8'] == hts_code].tolist()[0]
         cosine_similarities = cosine_similarity(_tfidf_matrix[idx:idx+1], _tfidf_matrix).flatten()
         related_docs_indices = cosine_similarities.argsort()[:-num_recs-2:-1]
-        recommendations = [i for i in related_docs_indices if i != idx]
-        return _df.iloc[recommendations][['hts8', 'brief_description']].head(num_recs)
+        
+        recs = []
+        for i in related_docs_indices:
+            if i != idx:
+                recs.append({
+                    'hts8': _df.iloc[i]['hts8'],
+                    'brief_description': _df.iloc[i]['brief_description'],
+                    'similarity': cosine_similarities[i]
+                })
+        
+        return pd.DataFrame(recs).head(num_recs)
     except (IndexError, TypeError):
         return pd.DataFrame()
 
 # --- Configuration & Styling ---
-st.set_page_config(page_title="Tariff Data Explorer", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Tariff Data Explorer", page_icon="🔎", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
 # --- Core API Logic ---
@@ -145,29 +155,23 @@ def parse_rate_for_graph(data: Dict[str, Any]) -> Optional[float]:
         treatment_section = next(s for s in data.get('sections', []) if s.get('id') == 'tariff_treatment')
         mfn_section = next(c for c in treatment_section.get('children', []) if c.get('id') == 'mfn')
 
-        # First, try the specific ad valorem component, as it's the cleanest data
         adv_rate_str = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'adv_rate_comp'), None)
         if adv_rate_str and '%' in adv_rate_str:
             return float(adv_rate_str.replace('%', '').strip())
 
-        # If that fails, parse the full MFN text description as a fallback
         mfn_rate_text = next((r.get('value') for r in mfn_section.get('children', []) if r.get('id') == 'mfn_text'), "")
         
-        # By wrapping mfn_rate_text in str(), we prevent errors if the API returns None or a number
         if "free" in str(mfn_rate_text).lower():
             return 0.0
 
-        # Extract the first number found in the complex text (e.g., "3.7% + ...")
         if isinstance(mfn_rate_text, str):
             numbers = re.findall(r"(\d+\.?\d*)", mfn_rate_text)
             if numbers:
                 return float(numbers[0])
 
     except (StopIteration, TypeError, ValueError):
-        # This will catch errors if the JSON structure is missing expected sections
         return None
     
-    # If no rate was found through any method, return None
     return None
 
 def parse_rate_for_calculation(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -263,15 +267,51 @@ if page == "Search":
                 if not rulings_df.empty:
                     matching_rulings = rulings_df[rulings_df['hts8'] == hts_input]
                     if not matching_rulings.empty:
-                        st.markdown("#### 統 Associated Rulings")
+                        st.markdown("#### Associated Rulings")
                         st.dataframe(matching_rulings[['RULING', 'RULING_DATE']], use_container_width=True)
 
                 st.markdown("#### Key Tariff Rates")
-                st.table(parse_key_rates(latest_tariff_data))
+                rates_df = parse_key_rates(latest_tariff_data)
+                if not rates_df.empty:
+                    rates_df['Rate Value'] = rates_df['Rate'].str.extract(r'(\d+\.?\d*)').astype(float).fillna(0)
+                    rates_df['Rate Text'] = rates_df['Rate'].fillna("N/A")
+                    
+                    # Ensure order is Applied then Bound
+                    rate_order = ["General (Applied MFN)", "Column 2 (Bound)"]
+                    rates_df['Rate Type'] = pd.Categorical(rates_df['Rate Type'], categories=rate_order, ordered=True)
+                    rates_df = rates_df.sort_values('Rate Type')
+
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        x=rates_df['Rate Type'],
+                        y=rates_df['Rate Value'],
+                        text=rates_df['Rate Text'],
+                        textposition='auto',
+                        marker_color=['#1f77b4', '#ff7f0e'] # Colors for Applied and Bound
+                    ))
+                    fig.update_layout(
+                        title_text='Applied MFN vs. Bound Rate Comparison',
+                        xaxis_title="Rate Type",
+                        yaxis_title="Ad Valorem Rate (%)",
+                        uniformtext_minsize=8,
+                        uniformtext_mode='hide'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
                 st.markdown("#### Preferential Trade Agreement Status")
                 agreements_df = parse_trade_agreements(latest_tariff_data)
-                if not agreements_df.empty: st.dataframe(agreements_df, use_container_width=True)
-                else: st.info("No specific trade agreement data found.")
+                if not agreements_df.empty:
+                    # Sort by eligibility
+                    agreements_df['sort_key'] = agreements_df['Eligibility'].apply(lambda x: 0 if x == 'Eligible' else 1)
+                    agreements_df = agreements_df.sort_values('sort_key').drop('sort_key', axis=1)
+
+                    # Function to style the 'Eligible' rows
+                    def highlight_eligible(s):
+                        return ['background-color: #d4edda'] * len(s) if s.Eligibility == 'Eligible' else [''] * len(s)
+                    
+                    st.dataframe(agreements_df.style.apply(highlight_eligible, axis=1), use_container_width=True)
+                else:
+                    st.info("No specific trade agreement data found.")
             else:
                 st.error(f"Failed to retrieve data for {end_year}.")
                 st.session_state.latest_tariff_data = None
@@ -284,17 +324,14 @@ if page == "Search":
                     if data:
                         rate = parse_rate_for_graph(data)
                         if rate is not None: historical_rates.append({"Year": str(year), "Rate (%)": rate})
-                    
-                    # Add a 0.5-second pause to avoid hitting the API rate limit
                     time.sleep(0.5)
-
             if historical_rates:
                 history_df = pd.DataFrame(historical_rates).set_index("Year")
                 st.line_chart(history_df)
             else: st.info("No historical rate data could be found.")
 
             st.markdown("---")
-            st.markdown("#### 庁 Similar Product Recommendations")
+            st.markdown("#### Similar Product Recommendations")
             
             hier_recs = get_hierarchical_recommendations(hts_input, hts_df)
             sem_recs = get_semantic_recommendations(hts_input, hts_df, tfidf_matrix)
@@ -307,12 +344,22 @@ if page == "Search":
             
             with col_rec2:
                 st.markdown("**Semantically Similar Products**")
-                if not sem_recs.empty: st.table(sem_recs)
-                else: st.info("No semantically similar products found.")
+                if not sem_recs.empty:
+                    # Prepare the DataFrame for display
+                    display_df = sem_recs[['hts8', 'brief_description', 'similarity']].copy()
+                    
+                    # Use the Styler to apply a heatmap to the 'similarity' column
+                    st.dataframe(
+                        display_df.style.background_gradient(cmap='Greens', subset=['similarity'])
+                                        .format({'similarity': '{:.2%}'}), # Format score as a percentage
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No semantically similar products found.")
 
     if 'latest_tariff_data' in st.session_state and st.session_state.latest_tariff_data:
         st.markdown("---")
-        st.markdown("#### ｧｮ Duty Calculator (Estimate)")
+        st.markdown("#### Duty Calculator (Estimate)")
         rate_components = parse_rate_for_calculation(st.session_state.latest_tariff_data)
         if rate_components.get("error"): st.warning(rate_components["error"])
         else:
@@ -355,7 +402,7 @@ elif page == "Compare":
         comparison_df = pd.DataFrame({"Feature": ["Description", "Applied MFN Rate", "Bound Rate (Col. 2)"], f"Product 1 ({res['hts1']})": [desc1, mfn1, col2_rate1], f"Product 2 ({res['hts2']})": [desc2, mfn2, col2_rate2]})
         st.table(comparison_df.set_index('Feature'))
         st.markdown("---")
-        st.markdown("#### ｧｮ Duty Comparison Calculator")
+        st.markdown("#### Duty Comparison Calculator")
         rate_comp1, rate_comp2 = parse_rate_for_calculation(res['data1']), parse_rate_for_calculation(res['data2'])
         col_calc1, col_calc2 = st.columns(2)
         with col_calc1: shipment_value = st.number_input("Shipment Value (USD)", 0.0, value=1000.0, step=100.0, key="compare_val")
@@ -377,7 +424,7 @@ elif page == "Compare":
             st.success("Data sent to Reclassification Helper. Please navigate to that page from the sidebar.")
 
 elif page == "Reclassification Helper":
-    st.title("統 Reclassification Letter Helper")
+    st.title("Reclassification Letter Helper")
     reclass_data = st.session_state.get('reclassification_data', {})
     if not reclass_data: st.warning("Please compare two products on the 'Compare' page first to pre-fill this form.")
     st.markdown("This tool helps you draft a letter to request a product reclassification. Fill in the details below.")
