@@ -7,3 +7,4 @@ nltk
 requests
 typing
 scikit-learn
+plotly
