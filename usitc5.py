@@ -113,6 +113,9 @@ def get_semantic_recommendations(hts_code: str, _df: pd.DataFrame, _tfidf_matrix
 st.set_page_config(page_title="Tariff Data Explorer", page_icon="🔎", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
+# Add the logo at the very top
+st.image("Tariffiq_logo.jpg", width=200) # Adjust width as needed
+
 # --- Core API Logic ---
 @st.cache_data(ttl=3600)
 def get_tariff_data(api_token: str, hts_code: str, year: str) -> Optional[Dict[str, Any]]:
