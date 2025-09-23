@@ -120,25 +120,6 @@ def get_semantic_recommendations(hts_code: str, _df: pd.DataFrame, _tfidf_matrix
 st.set_page_config(page_title="Tariff Data Explorer", page_icon="🔎", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
-# --- START: Floating Logo ---
-img = get_image_as_base64("Tariffiq_logo.jpg")
-
-st.markdown(
-    f"""
-    <style>
-        [data-testid="stSidebarNav"] {{
-            background-image: url("data:image/png;base64,{img}");
-            background-repeat: no-repeat;
-            padding-top: 120px; /* Adjust this to push your nav down */
-            background-position: 20px 20px; /* Adjust this for logo position in sidebar */
-            background-size: 150px; /* Adjust the size of the logo */
-        }}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-# --- END: Floating Logo ---
-
 # --- Core API Logic ---
 @st.cache_data(ttl=3600)
 def get_tariff_data(api_token: str, hts_code: str, year: str) -> Optional[Dict[str, Any]]:
@@ -249,6 +230,7 @@ hts_df = load_and_prepare_hts_data('hts8.csv')
 rulings_df = load_rulings_data('reconciled_rulings_with_all_hts8.csv')
 vectorizer, tfidf_matrix = create_tfidf_matrix(hts_df)
 
+st.sidebar.image("TariffIq_logo.png", use_column_width=True)
 page = st.sidebar.radio("Navigation", ["Search", "Compare", "Reclassification Helper", "News & Overview"])
 
 if page == "Search":
