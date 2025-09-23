@@ -121,7 +121,7 @@ st.set_page_config(page_title="Tariff Data Explorer", page_icon="🔎", layout="
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
 # --- START: Floating Logo ---
-img = get_image_as_base64("TariffIq_logo.png")
+img = get_image_as_base64("TariffIq_logo.jpg")
 
 st.markdown(
     f"""
