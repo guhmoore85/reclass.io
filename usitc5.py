@@ -1,4 +1,5 @@
 import streamlit as st
+import base64
 import requests
 import pandas as pd
 from typing import Optional, Dict, Any, List
@@ -51,6 +52,12 @@ def load_and_prepare_hts_data(filepath: str) -> pd.DataFrame:
     except FileNotFoundError:
         st.error(f"Error: The file '{filepath}' was not found. Please make sure it's in the same directory as the app.")
         return pd.DataFrame()
+        
+@st.cache_data
+def get_image_as_base64(file):
+    with open(file, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
 
 @st.cache_data
 def load_rulings_data(filepath: str) -> pd.DataFrame:
@@ -113,8 +120,24 @@ def get_semantic_recommendations(hts_code: str, _df: pd.DataFrame, _tfidf_matrix
 st.set_page_config(page_title="Tariff Data Explorer", page_icon="🔎", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
-# Add the logo at the very top
-st.image("Tariffiq_logo.jpg", width=200) # Adjust width as needed
+# --- START: Floating Logo ---
+img = get_image_as_base64("logo.png")
+
+st.markdown(
+    f"""
+    <style>
+        [data-testid="stSidebarNav"] {{
+            background-image: url("data:image/png;base64,{img}");
+            background-repeat: no-repeat;
+            padding-top: 120px; /* Adjust this to push your nav down */
+            background-position: 20px 20px; /* Adjust this for logo position in sidebar */
+            background-size: 150px; /* Adjust the size of the logo */
+        }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+# --- END: Floating Logo ---
 
 # --- Core API Logic ---
 @st.cache_data(ttl=3600)
