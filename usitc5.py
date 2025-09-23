@@ -230,7 +230,7 @@ hts_df = load_and_prepare_hts_data('hts8.csv')
 rulings_df = load_rulings_data('reconciled_rulings_with_all_hts8.csv')
 vectorizer, tfidf_matrix = create_tfidf_matrix(hts_df)
 
-st.sidebar.image("TariffIq_logo.png", use_column_width=True)
+st.sidebar.image("Tariffiq_logo.jpg", use_column_width=True)
 page = st.sidebar.radio("Navigation", ["Search", "Compare", "Reclassification Helper", "News & Overview"])
 
 if page == "Search":
