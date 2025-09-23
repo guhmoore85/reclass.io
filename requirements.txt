@@ -8,3 +8,4 @@ requests
 typing
 scikit-learn
 plotly
+base64
